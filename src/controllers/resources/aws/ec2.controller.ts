@@ -59,11 +59,11 @@ const getEC2IpAddress = async (req: CustomRequest, res: Response, next: NextFunc
 
 const generateEc2InstanceTerraformConfigFile = async (req: CustomRequest, res: Response, next: NextFunction) => {
   try {
-    const ec2 = await EC2Service.generateEc2InstanceTerraformConfigFile(req.body);
+    const terraformConfig = await EC2Service.generateEc2InstanceTerraformConfigFile(req.body);
     res.status(201).json({
       success: true,
       message: 'EC2 instance terraform config generated successfully',
-      ec2: ec2,
+      terraformConfig: terraformConfig,
     });
   } catch (error) {
     next(error);

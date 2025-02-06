@@ -254,11 +254,15 @@ const getEC2IpAddress = async (resourceId: string) => {
 
 const generateEc2InstanceTerraformConfigFile = async (ec2Data: EC2Instance) => {
   try {
+    const sshKey = generateSSHKeyPair();
+
     const openAiEc2Payload = {
       ...ec2Data,
       region: 'us-east-1',
+      publicKey: sshKey.publicKey,
     };
-    await AwsOpenAiService.generateEc2InstanceTerraformConfigFile(openAiEc2Payload);
+    const configData = await AwsOpenAiService.generateEc2InstanceTerraformConfigFile(openAiEc2Payload);
+    return configData;
   } catch (error) {
     logger.error(`Error at generateEc2InstanceTerraformConfigFile(): ${error}`);
     throw error;
