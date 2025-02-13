@@ -9,7 +9,7 @@ const generateEc2InstanceTerraformConfigFile = async (payload: EC2OpenAiPayload)
   try {
     // Generate a structured prompt
     const userPrompt = OpenAiPromptService.generatePromptForCreatingEc2Instance(payload);
-    const systemPrompt = OpenAiPromptService.systemPrompt;
+    const systemPrompt = OpenAiPromptService.generateSystemPromptForCreatingEc2Instance();
 
     const response = await openAiClient.chat.completions.create({
       model: 'gpt-4o-mini',
