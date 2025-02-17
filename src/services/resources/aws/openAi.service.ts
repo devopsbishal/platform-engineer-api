@@ -1,20 +1,22 @@
+import { generateHash } from '../../../utils/crypto';
 import logger from '../../../utils/logger';
 import { openAiClient } from '../../../utils/openai';
+import redisClient from '../../../utils/redisClient';
 
 import OpenAiPromptService from './openAiPrompt.service';
+import TerraformConfigStorageService from './terraformConfigStorage.service';
 
 import type { EC2OpenAiPayload } from '../../../interfaces/openAI.interface';
 
-const cache = new Map(); // Simple in-memory cache
-
 const generateEc2InstanceTerraformConfigFile = async (payload: EC2OpenAiPayload) => {
   try {
-    // Generate a structured prompt
-    const cacheKey = JSON.stringify(payload); // Unique key based on input
+    const cacheKey = generateHash(JSON.stringify(payload)); // Generate a unique hash key
 
-    if (cache.has(cacheKey)) {
-      logger.info('Returning cached Terraform config...');
-      return cache.get(cacheKey);
+    // Check if the key exists in Redis
+    const cachedConfig = await redisClient.get(cacheKey);
+    if (cachedConfig) {
+      logger.info('Returning cached Terraform config from Redis...');
+      return cachedConfig;
     }
 
     const userPrompt = OpenAiPromptService.generatePromptForCreatingEc2Instance(payload);
@@ -43,8 +45,9 @@ const generateEc2InstanceTerraformConfigFile = async (payload: EC2OpenAiPayload)
 
     logger.info('Terraform config generated successfully.');
 
-    cache.set(cacheKey, terraformConfig); // Store in cache
-    // You can return or store the terraformConfig as needed
+    // Store the Terraform config in Redis
+    await TerraformConfigStorageService.storeTerraformConfig(cacheKey, terraformConfig);
+
     return terraformConfig;
   } catch (error) {
     logger.error(`Error at generateEc2InstanceTerraformConfigFile(): ${error}`);
