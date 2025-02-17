@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { RESOURCE_STATUS, RESOURCE_TYPE } from '../../../constants/enum';
+import { RESOURCE_STATUS, RESOURCE_TYPE, USER_STATUS } from '../../../constants/enum';
 import { DynamicMessages } from '../../../constants/error';
 import AwsPayloadTransformer from '../../../helpers/aws/awsPayloadTransformer.helper';
 import { transformEC2InstanceNumberToTerraformCompatible, transformResourceTags } from '../../../helpers/payloadTransformer.helper';
@@ -11,6 +11,7 @@ import {
 import { EC2Model } from '../../../models/resources/aws/ec2.model';
 import BaseRepository from '../../../repositories/base.repository';
 import EC2Repository from '../../../repositories/resources/aws/ec2.repository';
+import AwsKeyPairRepository from '../../../repositories/resources/aws/key.repository';
 import ResourceRepository from '../../../repositories/resources/resource.repository';
 import { generateSSHKeyPair } from '../../../utils/crypto';
 import createError from '../../../utils/http.error';
@@ -307,7 +308,22 @@ const createEC2InstanceUsingOpenAI = async (userData: UserDbDoc, ec2Data: EC2Ins
       resourceName: 'ec2-instances',
     });
 
-    const sshKey = generateSSHKeyPair();
+    const sshKey = await AwsKeyPairRepository.findOne({ userId: userData._id, status: USER_STATUS.ACTIVE });
+
+    let ec2KeyPair = sshKey;
+    if (!sshKey) {
+      const generatedKey = generateSSHKeyPair();
+      ec2KeyPair = await AwsKeyPairRepository.create(
+        {
+          userId: userData._id as any,
+          privateKey: generatedKey.privateKey,
+          publicKey: generatedKey.publicKey,
+          status: USER_STATUS.ACTIVE,
+        },
+        { session: session },
+      );
+    }
+
     const resourceId = generateResourceId();
 
     const { terraformConfig, terraformConfigFile } = await AwsSharedService.getTerraformConfigFile({ terraformWritePath: terraformWritePath });
@@ -320,8 +336,8 @@ const createEC2InstanceUsingOpenAI = async (userData: UserDbDoc, ec2Data: EC2Ins
         resourceId: resourceId,
         userId: userData.id,
         sshKey: {
-          privateKey: sshKey.privateKey,
-          publicKey: sshKey.publicKey,
+          privateKey: ec2KeyPair?.privateKey,
+          publicKey: ec2KeyPair?.publicKey,
         },
         status: RESOURCE_STATUS.PENDING,
         terraformResourceName: resource.instanceName,
@@ -333,7 +349,7 @@ const createEC2InstanceUsingOpenAI = async (userData: UserDbDoc, ec2Data: EC2Ins
     const openAiEc2Payload = {
       ...ec2Data,
       region: 'us-east-1',
-      publicKey: sshKey.publicKey,
+      publicKey: ec2KeyPair?.publicKey || '',
     };
 
     const resourceConfig = await AwsOpenAiService.generateEc2InstanceTerraformConfigFile(openAiEc2Payload);

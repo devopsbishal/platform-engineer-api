@@ -8,8 +8,4 @@ const redisClient = createClient({
 
 redisClient.on('error', (err) => logger.error('Redis Client Error', err));
 
-(async () => {
-  await redisClient.connect();
-})();
-
 export default redisClient;

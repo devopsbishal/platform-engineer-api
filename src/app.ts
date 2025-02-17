@@ -3,6 +3,7 @@ import express from 'express';
 import connectToDb from './configs/db.config';
 import { startApp } from './server';
 import logger from './utils/logger';
+import redisClient from './utils/redisClient';
 
 import type { Express } from 'express';
 
@@ -16,10 +17,13 @@ const initialize = async (): Promise<void> => {
       environment: process.env.ENVIRONMENT || '',
     });
 
+    // Connect to Redis
+    await redisClient.connect();
+
     // Start the API server
     startApp(app);
   } catch (error) {
-    logger.error(`Failed to connect to the database so the server will not start: ${error}`);
+    logger.error(`Failed to connect to either mongodb or redis database so the server will not start: ${error}`);
     process.exit(1);
   }
 };

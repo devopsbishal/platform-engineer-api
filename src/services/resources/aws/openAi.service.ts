@@ -13,7 +13,9 @@ const generateEc2InstanceTerraformConfigFile = async (payload: EC2OpenAiPayload)
     const cacheKey = generateHash(JSON.stringify(payload)); // Generate a unique hash key
 
     // Check if the key exists in Redis
-    const cachedConfig = await redisClient.get(cacheKey);
+    const hashKey = `terraform_cache:${cacheKey}`;
+    const cachedConfig = await redisClient.get(hashKey);
+
     if (cachedConfig) {
       logger.info('Returning cached Terraform config from Redis...');
       return cachedConfig;
@@ -46,7 +48,7 @@ const generateEc2InstanceTerraformConfigFile = async (payload: EC2OpenAiPayload)
     logger.info('Terraform config generated successfully.');
 
     // Store the Terraform config in Redis
-    await TerraformConfigStorageService.storeTerraformConfig(cacheKey, terraformConfig);
+    await TerraformConfigStorageService.storeTerraformConfig(hashKey, terraformConfig);
 
     return terraformConfig;
   } catch (error) {
