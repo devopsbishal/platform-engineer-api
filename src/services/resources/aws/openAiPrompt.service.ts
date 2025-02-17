@@ -78,11 +78,7 @@ const generatePromptForCreatingEc2Instance = (payload: EC2OpenAiPayload) => {
     - Generate instance names dynamically using the tag 'Name' in the format '${instanceName}-1', '${instanceName}-2', '${instanceName}-3', etc.  
     - Ensure that each instance has the following tags: ${JSON.stringify(tags, null, 2)}.  
     - Include a resource to create an SSH key pair named '${instanceName}-key' and use this value '${publicKey.trim()}' for public_key.  
-    - Use this SSH key pair in the EC2 instance configuration. The key value will be provided separately.  
-    - Create an AWS security group to allow traffic on the following ports:
-    - **Port 22 (SSH)** from any IP address ('0.0.0.0/0').
-    - **Port 80 (HTTP)** from any IP address ('0.0.0.0/0').
-    - **Port 443 (HTTPS)** from any IP address ('0.0.0.0/0').
+    - Use this SSH key pair in the EC2 instance configuration.  
     - Use 'aws_vpc_security_group_ingress_rule' and 'aws_vpc_security_group_egress_rule' to manage security group rules instead of defining them inside 'aws_security_group'.  
     - Attach this security group to all EC2 instances.  
     - Return only the Terraform configuration content, without any explanations or HCL code fences.  

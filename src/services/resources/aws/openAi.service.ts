@@ -11,6 +11,7 @@ const generateEc2InstanceTerraformConfigFile = async (payload: EC2OpenAiPayload)
   try {
     // Generate a structured prompt
     const cacheKey = JSON.stringify(payload); // Unique key based on input
+
     if (cache.has(cacheKey)) {
       logger.info('Returning cached Terraform config...');
       return cache.get(cacheKey);

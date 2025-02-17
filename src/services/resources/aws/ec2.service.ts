@@ -1,6 +1,4 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { console } from 'inspector';
-
 import { RESOURCE_STATUS, RESOURCE_TYPE } from '../../../constants/enum';
 import { DynamicMessages } from '../../../constants/error';
 import AwsPayloadTransformer from '../../../helpers/aws/awsPayloadTransformer.helper';
@@ -338,14 +336,9 @@ const createEC2InstanceUsingOpenAI = async (userData: UserDbDoc, ec2Data: EC2Ins
       publicKey: sshKey.publicKey,
     };
 
-    console.log({ openAiEc2Payload });
-
     const resourceConfig = await AwsOpenAiService.generateEc2InstanceTerraformConfigFile(openAiEc2Payload);
 
-    console.log(ec2DBInsertData);
     await EC2Repository.bulkSave(ec2DBInsertData, { session: session });
-
-    console.log('ec2 inserte');
 
     await ResourceService.saveResourceDetails(
       {
@@ -360,6 +353,15 @@ const createEC2InstanceUsingOpenAI = async (userData: UserDbDoc, ec2Data: EC2Ins
       },
       { session: session },
     );
+
+    const callBack = (callBackData: { resourceId: string; resourceData: object }) => {
+      const { resourceId, resourceData } = callBackData;
+      ResourceRepository.update({ resourceId: resourceId }, resourceData);
+      updateEC2InstanceStatus({ resourceId: resourceId, status: getValue(resourceData, 'status') });
+      updateIpAddressOfEC2Instances({ resourceId: resourceId, metaData: getValue(resourceData, 'metaData') });
+    };
+
+    await ExecutionService.createResourceInCloud({ resourceId: resourceId, callBack: callBack, options: { session: session } });
 
     await session.commitTransaction();
     session.endSession();
