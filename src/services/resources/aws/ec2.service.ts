@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { RESOURCE_STATUS, RESOURCE_TYPE } from '../../../constants/enum';
+import { RESOURCE_STATUS, RESOURCE_TYPE, USER_STATUS } from '../../../constants/enum';
 import { DynamicMessages } from '../../../constants/error';
+import AwsPayloadTransformer from '../../../helpers/aws/awsPayloadTransformer.helper';
 import { transformEC2InstanceNumberToTerraformCompatible, transformResourceTags } from '../../../helpers/payloadTransformer.helper';
 import {
   convertInstanceCountToString,
@@ -10,6 +11,7 @@ import {
 import { EC2Model } from '../../../models/resources/aws/ec2.model';
 import BaseRepository from '../../../repositories/base.repository';
 import EC2Repository from '../../../repositories/resources/aws/ec2.repository';
+import AwsKeyPairRepository from '../../../repositories/resources/aws/key.repository';
 import ResourceRepository from '../../../repositories/resources/resource.repository';
 import { generateSSHKeyPair } from '../../../utils/crypto';
 import createError from '../../../utils/http.error';
@@ -22,6 +24,7 @@ import ResourceService from '../resource.service';
 import TemplateService from '../template/template.service';
 
 import AwsOpenAiService from './openAi.service';
+import AwsSharedService from './shared.service';
 
 import type { DbQueryOptions } from '../../../interfaces/query.interface';
 import type { EC2DBDoc, EC2Instance } from '../../../schemas/resources/aws/ec2.schema';
@@ -252,23 +255,6 @@ const getEC2IpAddress = async (resourceId: string) => {
   return ipList;
 };
 
-const generateEc2InstanceTerraformConfigFile = async (ec2Data: EC2Instance) => {
-  try {
-    const sshKey = generateSSHKeyPair();
-
-    const openAiEc2Payload = {
-      ...ec2Data,
-      region: 'us-east-1',
-      publicKey: sshKey.publicKey,
-    };
-    const configData = await AwsOpenAiService.generateEc2InstanceTerraformConfigFile(openAiEc2Payload);
-    return configData;
-  } catch (error) {
-    logger.error(`Error at generateEc2InstanceTerraformConfigFile(): ${error}`);
-    throw error;
-  }
-};
-
 const getUserEc2InstanceList = async (payload: { userId: string; page: number; limit: number }) => {
   const { userId, page, limit } = payload;
   const option = {
@@ -296,6 +282,113 @@ const getUserEc2InstanceDetails = async (payload: { userId: string; instanceId: 
   return instanceDetails;
 };
 
+const generateEc2InstanceTerraformConfigFile = async (ec2Data: EC2Instance) => {
+  try {
+    const sshKey = generateSSHKeyPair();
+
+    const openAiEc2Payload = {
+      ...ec2Data,
+      region: 'us-east-1',
+      publicKey: sshKey.publicKey,
+    };
+    const configData = await AwsOpenAiService.generateEc2InstanceTerraformConfigFile(openAiEc2Payload);
+    return configData;
+  } catch (error) {
+    logger.error(`Error at generateEc2InstanceTerraformConfigFile(): ${error}`);
+    throw error;
+  }
+};
+
+const createEC2InstanceUsingOpenAI = async (userData: UserDbDoc, ec2Data: EC2Instance) => {
+  const session: ClientSession = await BaseRepository.getDbSession();
+  session.startTransaction();
+  try {
+    const terraformWritePath = getResourceFileWrittenPath({
+      userData: userData,
+      resourceName: 'ec2-instances',
+    });
+
+    const sshKey = await AwsKeyPairRepository.findOne({ userId: userData._id, status: USER_STATUS.ACTIVE });
+
+    let ec2KeyPair = sshKey;
+    if (!sshKey) {
+      const generatedKey = generateSSHKeyPair();
+      ec2KeyPair = await AwsKeyPairRepository.create(
+        {
+          userId: userData._id as any,
+          privateKey: generatedKey.privateKey,
+          publicKey: generatedKey.publicKey,
+          status: USER_STATUS.ACTIVE,
+        },
+        { session: session },
+      );
+    }
+
+    const resourceId = generateResourceId();
+
+    const { terraformConfig, terraformConfigFile } = await AwsSharedService.getTerraformConfigFile({ terraformWritePath: terraformWritePath });
+
+    const transformedEc2Data = AwsPayloadTransformer.transformEC2Payload(ec2Data.instanceName, ec2Data.numberOfInstance);
+
+    const ec2DBInsertData = transformedEc2Data.map((resource) => {
+      const data = {
+        ...ec2Data,
+        resourceId: resourceId,
+        userId: userData.id,
+        sshKey: {
+          privateKey: ec2KeyPair?.privateKey,
+          publicKey: ec2KeyPair?.publicKey,
+        },
+        status: RESOURCE_STATUS.PENDING,
+        terraformResourceName: resource.instanceName,
+      };
+
+      return data as EC2DBDoc;
+    });
+
+    const openAiEc2Payload = {
+      ...ec2Data,
+      region: 'us-east-1',
+      publicKey: ec2KeyPair?.publicKey || '',
+    };
+
+    const resourceConfig = await AwsOpenAiService.generateEc2InstanceTerraformConfigFile(openAiEc2Payload);
+
+    await EC2Repository.bulkSave(ec2DBInsertData, { session: session });
+
+    await ResourceService.saveResourceDetails(
+      {
+        terraformConfig: terraformConfig,
+        resourceConfig: resourceConfig,
+        userId: userData.id,
+        resourceType: RESOURCE_TYPE.EC2,
+        status: RESOURCE_STATUS.PENDING,
+        terraformStateFileS3Key: terraformConfigFile,
+        resourceExecutionPath: terraformWritePath,
+        resourceId: resourceId,
+      },
+      { session: session },
+    );
+
+    const callBack = (callBackData: { resourceId: string; resourceData: object }) => {
+      const { resourceId, resourceData } = callBackData;
+      ResourceRepository.update({ resourceId: resourceId }, resourceData);
+      updateEC2InstanceStatus({ resourceId: resourceId, status: getValue(resourceData, 'status') });
+      updateIpAddressOfEC2Instances({ resourceId: resourceId, metaData: getValue(resourceData, 'metaData') });
+    };
+
+    await ExecutionService.createResourceInCloud({ resourceId: resourceId, callBack: callBack, options: { session: session } });
+
+    await session.commitTransaction();
+    session.endSession();
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    logger.error(`Error at createEC2InstanceUsingOpenAI(): ${error}`);
+    throw error;
+  }
+};
+
 const EC2Service = {
   createEC2Instance,
   updateEC2InstanceStatus,
@@ -305,6 +398,7 @@ const EC2Service = {
   generateEc2InstanceTerraformConfigFile,
   getUserEc2InstanceList,
   getUserEc2InstanceDetails,
+  createEC2InstanceUsingOpenAI,
 };
 
 export default EC2Service;

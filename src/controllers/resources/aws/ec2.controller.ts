@@ -96,6 +96,19 @@ const getUserEc2InstanceDetails = async (req: CustomRequest, res: Response, next
   }
 };
 
+const createEC2InstanceUsingOpenAI = async (req: CustomRequest, res: Response, next: NextFunction) => {
+  try {
+    const ec2 = await EC2Service.createEC2InstanceUsingOpenAI(req.user, req.body);
+    res.status(201).json({
+      success: true,
+      message: 'EC2 instance created successfully',
+      ec2: ec2,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 const EC2Controller = {
   createEC2Instance,
   deleteEC2InstanceWithSameResourceId,
@@ -104,6 +117,7 @@ const EC2Controller = {
   generateEc2InstanceTerraformConfigFile,
   getUserEc2InstanceList,
   getUserEc2InstanceDetails,
+  createEC2InstanceUsingOpenAI,
 };
 
 export default EC2Controller;
